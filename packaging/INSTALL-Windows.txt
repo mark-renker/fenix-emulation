@@ -1,0 +1,14 @@
+Fenix I - Windows install
+
+1. Copy the "Fenix I.vst3" and "Fenix I FX.vst3" folders to
+   C:\Program Files\Common Files\VST3\
+2. Copy "Fenix I.clap" and "Fenix I FX.clap" to
+   C:\Program Files\Common Files\CLAP\   (for Bitwig, Reaper and other CLAP hosts)
+3. Rescan plug-ins in your DAW. Both appear under "Renky Denk".
+4. "Fenix I.exe" is the standalone app; it runs from anywhere. If Windows
+   SmartScreen warns about an unrecognized app, click More info > Run anyway
+   (the app is not code-signed).
+
+Nothing sounds until it is patched: open the PATCHES menu and pick one, then
+play MIDI. To retune the circuit model, copy topology_params.json to
+%APPDATA%\FenixI\topology_params.json and press RELOAD PARAMS.

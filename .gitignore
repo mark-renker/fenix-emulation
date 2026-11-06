@@ -1,0 +1,7 @@
+build/
+build-*/
+dist/
+*.png
+!docs/ui_preview.png
+.DS_Store
+fenix_report.json

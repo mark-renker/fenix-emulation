@@ -1,0 +1,89 @@
+# Build installable plug-ins in the cloud.
+#   - push a tag like v0.1.1 -> builds macOS (universal .pkg) + Windows (zip),
+#                               runs the harness, and publishes a GitHub Release
+#   - "Run workflow" button  -> same builds, uploaded as workflow artifacts only
+name: release
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (universal, JUCE 8.0.6 + clap-juce-extensions via FetchContent)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build -j 4
+      - name: Harness (CPU budget is informational on shared runners)
+        run: |
+          ./build/fenix_harness --quick --report harness.json | tee harness.log || true
+          if grep "FAIL" harness.log | grep -v "CPU" ; then
+            echo "::error::harness failures (non-CPU) - see above"; exit 1
+          fi
+          grep "FAIL" harness.log | grep "CPU" && echo "::warning::CPU budget over on this runner" || true
+      - name: Package installer
+        run: packaging/make_installer.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+      - name: Build
+        run: cmake --build build --config Release --parallel --target FenixI_VST3 FenixI_Standalone FenixI_CLAP FenixIFX_VST3 FenixIFX_CLAP fenix_harness
+      - name: Harness
+        shell: bash
+        run: |
+          ./build/Release/fenix_harness.exe --quick --report harness.json | tee harness.log || true
+          if grep "FAIL" harness.log | grep -v "CPU" ; then
+            echo "::error::harness failures (non-CPU) - see above"; exit 1
+          fi
+      - name: Package zip
+        shell: bash
+        run: |
+          VERSION=$(sed -n 's/^project(FenixI VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          OUT="Fenix I $VERSION (Windows)"
+          mkdir -p "$OUT" dist
+          cp -R "build/FenixI_artefacts/Release/VST3/Fenix I.vst3" "$OUT/"
+          cp -R "build/FenixIFX_artefacts/Release/VST3/Fenix I FX.vst3" "$OUT/"
+          cp "build/FenixI_artefacts/Release/CLAP/Fenix I.clap" "$OUT/"
+          cp "build/FenixIFX_artefacts/Release/CLAP/Fenix I FX.clap" "$OUT/"
+          cp "build/FenixI_artefacts/Release/Standalone/Fenix I.exe" "$OUT/"
+          cp resources/topology_params.json "$OUT/"
+          cp packaging/INSTALL-Windows.txt "$OUT/INSTALL.txt"
+          7z a "dist/FenixI-$VERSION-Windows-x64.zip" "$OUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ macos, windows ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "Fenix I $TAG" --notes-file packaging/RELEASE_NOTES.md
+          gh release upload "$TAG" dist/* --clobber
